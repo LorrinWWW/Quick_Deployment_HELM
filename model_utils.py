@@ -1,4 +1,4 @@
-import sys
+import os, sys
 
 sys.path.append( './safari-internal' )
 
@@ -80,7 +80,7 @@ def get_local_huggingface_tokenizer_model(model_name, model_path=None, dtype=Non
             lr=1e-5,
             lr_pos_emb=1e-5,
         )
-        tokenizer = AutoTokenizer.from_pretrained("gpt2")
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
         model = ConvLMHeadModel(
             d_model=d_model, n_layer=n_layer, d_inner=2 * d_model, vocab_size=len(tokenizer),
             layer=layer, pad_vocab_size_multiple=8)

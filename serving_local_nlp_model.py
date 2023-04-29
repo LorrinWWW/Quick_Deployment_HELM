@@ -7,6 +7,7 @@ import timeit
 import random
 import logging
 import argparse
+import traceback
 import numpy as np
 from faiss_retrieval import *
 from utils import *
@@ -175,7 +176,7 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                     logging.debug(f"start_ids: length ({inputs.input_ids.shape[0]}) ids: {inputs.input_ids}")
                     input_length = inputs.input_ids.shape[1]
                     
-                    outputs = self.model(**inputs)
+                    outputs = self.model(inputs.input_ids)
 
                     if output_scores:
                         ### hard code, assume bsz==1
@@ -264,10 +265,10 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
 
                     if self.task_info["temperature"] == 0:
                         outputs = self.model.generate(
-                            **inputs, 
+                            inputs.input_ids, 
                             # do_sample=False, 
                             top_k=1,
-                            max_tokens=self.task_info["output_len"] + input_length,
+                            max_length=self.task_info["output_len"] + input_length,
                             return_dict_in_generate=True,
                             output_scores=output_scores,  # return logit score
                             # output_hidden_states=True,  # return embeddings
@@ -276,22 +277,31 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                             # stream_tokens=self.task_info.get("stream_tokens"),
                         )
                     else:
-                        outputs = self.model.generate(
-                            **inputs, 
-                            # do_sample=True, 
-                            top_p=self.task_info['top_p'],
-                            top_k=self.task_info['top_k'],
-                            # repetition_penalty=self.task_info['repetition_penalty'],
-                            temperature=self.task_info["temperature"],
-                            # penalty_alpha=self.task_info["penalty_alpha"],
-                            max_tokens=self.task_info["output_len"] + input_length,
-                            return_dict_in_generate=True,
-                            output_scores=output_scores,  # return logit score
-                            # output_hidden_states=True,  # return embeddings
-                            # stream_tokens=self.task_info.get("stream_tokens"),
-                            # logits_processor=LogitsProcessorList([InfNanRemoveLogitsProcessor()]),
-                            # stopping_criteria=StoppingCriteriaList([StopWordsCriteria(self.task_info["stop"], self.tokenizer)]) if self.task_info.get("stop") else None,
-                        )
+                        
+                        logging.debug(f"""[Break] {inputs.input_ids}, {self.task_info['top_p']}, {self.task_info['top_k']}, self.task_info["temperature"], {self.task_info["output_len"] + input_length}, {output_scores}""")
+                        try:
+                            outputs = self.model.generate(
+                                inputs.input_ids, 
+                                # do_sample=True, 
+                                top_p=self.task_info['top_p'],
+                                top_k=self.task_info['top_k'],
+                                # repetition_penalty=self.task_info['repetition_penalty'],
+                                temperature=self.task_info["temperature"],
+                                # penalty_alpha=self.task_info["penalty_alpha"],
+                                max_length=self.task_info["output_len"] + input_length,
+                                return_dict_in_generate=True,
+                                output_scores=output_scores,  # return logit score
+                                # output_hidden_states=True,  # return embeddings
+                                # stream_tokens=self.task_info.get("stream_tokens"),
+                                # logits_processor=LogitsProcessorList([InfNanRemoveLogitsProcessor()]),
+                                # stopping_criteria=StoppingCriteriaList([StopWordsCriteria(self.task_info["stop"], self.tokenizer)]) if self.task_info.get("stop") else None,
+                            )
+                        except Exception as e:
+                            traceback.print_exc()
+                            raise e
+                    
+                    logging.debug(f"[Break] So far so good")
+                    
                     if output_scores:
                         
                         ### hard code, assume bsz==1
@@ -301,7 +311,7 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                         token_ids = outputs.sequences[0, inputs['input_ids'].size(1):].tolist()
                         tokens = self.tokenizer.convert_ids_to_tokens(token_ids)
                         
-                        logits = model(outputs.sequences).logits
+                        logits = model(outputs.sequences).logits[0]
 
                         logprobs_dict = {
                             'tokens': tokens,
