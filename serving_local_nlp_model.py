@@ -310,22 +310,22 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                         # sampled tokens
                         token_ids = outputs.sequences[0, inputs['input_ids'].size(1):].tolist()
                         tokens = self.tokenizer.convert_ids_to_tokens(token_ids)
-                        
-                        logits = model(outputs.sequences).logits[0]
+
+                        logits = self.model(outputs.sequences).logits[:, inputs['input_ids'].size(1):-1]
 
                         logprobs_dict = {
                             'tokens': tokens,
-                            'token_logprobs': [],
-                            'top_logprobs': [],
+                            'token_logprobs': [None],
+                            'top_logprobs': [None],
                         }
 
                         # origianl logits
-                        logits = logits[:, -1:].nan_to_num()
+                        logits = logits[:, :-1].nan_to_num()
                         logprobs = logits.log_softmax(-1).nan_to_num()
                         values, indices = logprobs.topk(n_logprobs, dim=-1)
 
-                        for i in range(indices.size(1)):
-                            selected_token_id = token_ids[i]
+                        for i in range(indices.size(1)-1):
+                            selected_token_id = token_ids[i+1]
                             # topk tokens
                             tokens = self.tokenizer.convert_ids_to_tokens(indices[0, i])
                             # topk scores
