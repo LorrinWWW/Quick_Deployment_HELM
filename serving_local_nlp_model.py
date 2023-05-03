@@ -19,6 +19,7 @@ from transformers import InfNanRemoveLogitsProcessor, LogitsProcessorList
 from together_worker.fast_inference import FastInferenceInterface
 from together_web3.computer import RequestTypeLanguageModelInference
 from together_web3.together import TogetherWeb3, TogetherClientOptions
+from src.utils.generation import generate as hb_generate
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +193,7 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                             'top_logprobs': [None],
                         }
 
-                        logprobs = outputs.logits.nan_to_num().log_softmax(-1).nan_to_num()
+                        logprobs = outputs[1].nan_to_num().log_softmax(-1).nan_to_num()
                         values, indices = logprobs.topk(n_logprobs, dim=-1)
 
                         for i in range(indices.size(1)-1):
@@ -264,13 +265,15 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                     input_length = inputs.input_ids.shape[1]
 
                     if self.task_info["temperature"] == 0:
-                        outputs = self.model.generate(
+                        outputs = hb_generate(
+                            self.model,
                             inputs.input_ids, 
                             # do_sample=False, 
                             top_k=1,
-                            max_length=self.task_info["output_len"] + input_length,
-                            return_dict_in_generate=True,
-                            output_scores=output_scores,  # return logit score
+                            max_seq_len=self.task_info["output_len"] + input_length,
+                            max_new_tokens=self.task_info["output_len"],
+                            # return_dict_in_generate=True,
+                            output_scores=True,  # return logit score
                             # output_hidden_states=True,  # return embeddings
                             # logits_processor=LogitsProcessorList([InfNanRemoveLogitsProcessor()]),
                             # stopping_criteria=StoppingCriteriaList([StopWordsCriteria(self.task_info["stop"], self.tokenizer)]) if self.task_info.get("stop") else None,
@@ -280,7 +283,8 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                         
                         logging.debug(f"""[Break] {inputs.input_ids}, {self.task_info['top_p']}, {self.task_info['top_k']}, self.task_info["temperature"], {self.task_info["output_len"] + input_length}, {output_scores}""")
                         try:
-                            outputs = self.model.generate(
+                            outputs = hb_generate(
+                                self.model,
                                 inputs.input_ids, 
                                 # do_sample=True, 
                                 top_p=self.task_info['top_p'],
@@ -288,9 +292,10 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                                 # repetition_penalty=self.task_info['repetition_penalty'],
                                 temperature=self.task_info["temperature"],
                                 # penalty_alpha=self.task_info["penalty_alpha"],
-                                max_length=self.task_info["output_len"] + input_length,
-                                return_dict_in_generate=True,
-                                output_scores=output_scores,  # return logit score
+                                max_seq_len=self.task_info["output_len"] + input_length,
+                                max_new_tokens=self.task_info["output_len"],
+                                # return_dict_in_generate=True,
+                                output_scores=True,  # return logit score
                                 # output_hidden_states=True,  # return embeddings
                                 # stream_tokens=self.task_info.get("stream_tokens"),
                                 # logits_processor=LogitsProcessorList([InfNanRemoveLogitsProcessor()]),
@@ -308,10 +313,10 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                         n_logprobs = self.task_info["logprobs"]
 
                         # sampled tokens
-                        token_ids = outputs.sequences[0, inputs['input_ids'].size(1):].tolist()
+                        token_ids = outputs[0][0, inputs['input_ids'].size(1):].tolist()
                         tokens = self.tokenizer.convert_ids_to_tokens(token_ids)
 
-                        logits = self.model(outputs.sequences).logits[:, inputs['input_ids'].size(1):-1]
+                        logits = self.model(outputs[0]).logits[:, inputs['input_ids'].size(1):-1]
 
                         logprobs_dict = {
                             'tokens': tokens,
@@ -347,9 +352,9 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                 item = {'choices': [], }
                 for beam_id in range(self.task_info["beam_width"]):
                     if self.hf_model_name == "google/flan-t5-xxl":
-                        token = outputs.sequences[beam_id, :]
+                        token = outputs[0][beam_id, :]
                     else:
-                        token = outputs.sequences[beam_id, input_length:]  # exclude context input from the output
+                        token = outputs[0][beam_id, input_length:]  # exclude context input from the output
                     logging.debug(f"[INFO] raw token: {token}")
                     output = self.tokenizer.decode(token)
                     logging.debug(f"[INFO] beam {beam_id}: \n[Context]\n{contexts}\n\n[Output]\n{output}\n")
@@ -371,15 +376,15 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                 inference_result = []
                 for outputs in output_buffer:
                     beam_width = self.task_info["beam_width"]
-                    current_batch_size = outputs.sequences.shape[0] // beam_width
+                    current_batch_size = outputs[0].shape[0] // beam_width
                     for sample_id in range(current_batch_size):
                         item = {'choices': [], }
                         for beam_id in range(beam_width):
                             if self.hf_model_name == "google/flan-t5-xxl":
-                                token = outputs.sequences[sample_id*beam_width+beam_id, :]
+                                token = outputs[0][sample_id*beam_width+beam_id, :]
                             else:
                                 # exclude context input from the output
-                                token = outputs.sequences[sample_id*beam_width+beam_id, input_length:]
+                                token = outputs[0][sample_id*beam_width+beam_id, input_length:]
                             logging.debug(f"[INFO] raw token: {token}")
                             output = self.tokenizer.decode(token)
                             logging.debug(f"[INFO] beam {beam_id}: \n[Context]\n{contexts}\n\n[Output]\n{output}\n")
@@ -394,21 +399,21 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                     "result_type": RequestTypeLanguageModelInference,
                     "choices": inference_result,
                     "raw_compute_time": time_elapsed,
-                    # "output_length": [outputs.sequences.shape[0] for outputs in output_buffer]
+                    # "output_length": [outputs[0].shape[0] for outputs in output_buffer]
                 }
                 """
                 item = {'choices': [], }
                 for i_output, outputs in enumerate(output_buffer):
                     beam_width = self.task_info["beam_width"]
-                    current_batch_size = outputs.sequences.shape[0] // beam_width
+                    current_batch_size = outputs[0].shape[0] // beam_width
                     for sample_id in range(current_batch_size):
 
                         for beam_id in range(beam_width):
                             if self.hf_model_name == "google/flan-t5-xxl":
-                                token = outputs.sequences[sample_id * beam_width + beam_id, :]
+                                token = outputs[0][sample_id * beam_width + beam_id, :]
                             else:
                                 # exclude context input from the output
-                                token = outputs.sequences[sample_id * beam_width + beam_id, input_length:]
+                                token = outputs[0][sample_id * beam_width + beam_id, input_length:]
                             logging.debug(f"[INFO] raw token: {token}")
                             output = self.tokenizer.decode(token)
                             logging.debug(f"[INFO] beam {beam_id}: \n[Context]\n{contexts}\n\n[Output]\n{output}\n")
@@ -425,7 +430,7 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                     "result_type": RequestTypeLanguageModelInference,
                     "choices": item['choices'],
                     "raw_compute_time": time_elapsed,
-                    # "output_length": [outputs.sequences.shape[0] for outputs in output_buffer]
+                    # "output_length": [outputs[0].shape[0] for outputs in output_buffer]
                 }
 
         #if self.task_info["logprobs"] > 0:

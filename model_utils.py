@@ -89,6 +89,7 @@ def get_local_huggingface_tokenizer_model(model_name, model_path=None, dtype=Non
             state_dict = {k[len('model.'):]: v for k, v in state_dict['state_dict'].items()
                           if k.startswith('model.')}
         model.load_state_dict(state_dict)
+        model.eval()
         
     elif model_path is not None and model_path != "":
         logger.warning("model_path is not None, but model_name is not given. Load from model_path only")
