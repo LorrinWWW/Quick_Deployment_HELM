@@ -274,6 +274,7 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                             max_new_tokens=self.task_info["output_len"],
                             # return_dict_in_generate=True,
                             output_scores=True,  # return logit score
+                            kv_caching=True,
                             # output_hidden_states=True,  # return embeddings
                             # logits_processor=LogitsProcessorList([InfNanRemoveLogitsProcessor()]),
                             # stopping_criteria=StoppingCriteriaList([StopWordsCriteria(self.task_info["stop"], self.tokenizer)]) if self.task_info.get("stop") else None,
@@ -296,6 +297,7 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                                 max_new_tokens=self.task_info["output_len"],
                                 # return_dict_in_generate=True,
                                 output_scores=True,  # return logit score
+                                kv_caching=True
                                 # output_hidden_states=True,  # return embeddings
                                 # stream_tokens=self.task_info.get("stream_tokens"),
                                 # logits_processor=LogitsProcessorList([InfNanRemoveLogitsProcessor()]),
@@ -320,8 +322,8 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
 
                         logprobs_dict = {
                             'tokens': tokens,
-                            'token_logprobs': [None],
-                            'top_logprobs': [None],
+                            'token_logprobs': [],
+                            'top_logprobs': [],
                         }
 
                         # origianl logits
