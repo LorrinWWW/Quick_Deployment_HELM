@@ -177,14 +177,19 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                     contexts = complete_contexts[iter_i * batch_size: (iter_i + 1) * batch_size]
                     # Do translation
                     contexts = [translate_chatml_to_openchat(context) for context in contexts]
-                    inputs = self.tokenizer(contexts, padding=True, truncation=True, return_tensors="pt").to(self.device)
+                    inputs = self.tokenizer(contexts, add_special_tokens=False, return_tensors="pt").to(self.device)
                     logging.debug(f"start_ids: length ({inputs.input_ids.shape[0]}) ids: {inputs.input_ids}")
                     input_length = inputs.input_ids.shape[1]
                     
                     if 'token_type_ids' in inputs:
                         inputs.pop('token_type_ids')
+                        
+                    if inputs.input_ids.size(1) > 2048:
+                        input_ids = inputs.input_ids[:, :2048]
+                    else:
+                        input_ids = inputs.input_ids
                     
-                    outputs = self.model(**inputs)
+                    outputs = self.model(input_ids)
 
                     if output_scores:
                         ### hard code, assume bsz==1
@@ -203,7 +208,7 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                         logprobs = outputs.logits.log_softmax(-1)
                         values, indices = logprobs.topk(n_logprobs, dim=-1)
 
-                        for i in range(indices.size(1)-1):
+                        for i in range(min(inputs.input_ids.size(1)-1, 2048)):
                             selected_token_id = token_ids[i+1]
                             # topk tokens
                             tokens = self.tokenizer.convert_ids_to_tokens(indices[0, i])
@@ -267,7 +272,7 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
                     contexts = complete_contexts[iter_i * batch_size: (iter_i + 1) * batch_size]
                     # Do translation
                     contexts = [translate_chatml_to_openchat(context) for context in contexts]
-                    inputs = self.tokenizer(contexts, padding=True, truncation=True, return_tensors="pt").to(self.device)
+                    inputs = self.tokenizer(contexts, add_special_tokens=False, truncation=True, max_length=2049-self.task_info["output_len"], return_tensors="pt").to(self.device)
                     
                     if 'token_type_ids' in inputs:
                         inputs.pop('token_type_ids')

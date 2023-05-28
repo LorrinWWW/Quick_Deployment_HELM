@@ -53,15 +53,18 @@ def get_local_huggingface_tokenizer_model(model_name, model_path=None, dtype=Non
         tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neox-20b")
         model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neox-20b", torch_dtype=torch.float16)
     elif model_name == 'Together/gpt-neoxT-20b':
+        dtype = dtype or torch.float16
         if model_path is not None:
             tokenizer = AutoTokenizer.from_pretrained(model_path)
-            model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16)
+            model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True, torch_dtype=dtype)
         else:
             assert False
     elif model_path is not None and model_path != "":
+        dtype = dtype or torch.float16
         logger.warning("model_path is not None, but model_name is not given. Load from model_path only")
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
-        model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16)
+        tokenizer = AutoTokenizer.from_pretrained(model_path, add_bos_token=False)
+        model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=dtype)
+        tokenizer.add_bos_token = False
     else:
         assert False, "Model not supported yet."
 
@@ -117,13 +120,15 @@ def get_dist_accelerate_tokenizer_model(model_name, model_path, dtype=None):
     elif 'llama' in model_name:
         print('loading llama...............')
         config = AutoConfig.from_pretrained(model_path)
+        dtype = dtype or torch.float16
         with init_empty_weights():
-            model = AutoModelForCausalLM.from_config(config).half()
+            model = AutoModelForCausalLM.from_config(config).to(dtype)
         model = load_checkpoint_and_dispatch(
             model, model_path, device_map="auto", no_split_module_classes=["LlamaDecoderLayer"]
         )
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        tokenizer = AutoTokenizer.from_pretrained(model_path, add_bos_token=False)
         tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.add_bos_token = False
     elif 'bloom' in model_name:
         print('loading bloom...............')
         config = AutoConfig.from_pretrained(model_path)
