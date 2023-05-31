@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.3.0-cudnn8-devel-ubuntu20.04
+FROM nvidia/cuda:11.7.0-cudnn8-devel-ubuntu20.04
 
 # init workdir
 RUN mkdir -p /build
@@ -18,20 +18,23 @@ RUN apt update && \
 # echo ". /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc && \
 # echo "conda activate base" >> ~/.bashrc
 
+RUN mkdir -p /safari-internal
+COPY safari-internal /safari-internal
+
 # install conda alpa env
 RUN . /opt/conda/etc/profile.d/conda.sh && \
     conda create --name alpa python=3.8 -y && \
     conda activate alpa && \
     apt install coinor-cbc -y && \
     pip3 install --upgrade pip && \
-    pip3 install cupy-cuda113 && \
+    pip3 install cupy-cuda117 && \
     pip3 install alpa && \
-    pip3 install jaxlib==0.3.22+cuda113.cudnn820 -f https://alpa-projects.github.io/wheels.html && \
+    pip3 install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html && \
     pip3 install together_worker && \
     pip3 install transformers && \
     pip3 install fastapi uvicorn omegaconf jinja2 einops && \
-    pip3 install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu113  && \
-    pip3 install flash-attn && \
+    pip3 install torch==2.0 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu117  && \
+    pip3 install flash-attn==1.0.2 && \
     cd /build && \
     git clone https://github.com/alpa-projects/alpa.git && \
     cd alpa/examples && \
