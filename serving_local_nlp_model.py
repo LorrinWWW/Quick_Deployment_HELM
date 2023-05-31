@@ -336,10 +336,13 @@ class HuggingFaceLocalNLPModelInference(FastInferenceInterface):
 
                         # last layer hidden states
                         hids = [outputs.hidden_states[0][-1][:, -1:]]
-                        hids += [hid[-1] for hid in outputs.hidden_states[1:]]
+                        hids += [hid[-1][:, -1:] for hid in outputs.hidden_states[1:]]
                         hids = torch.cat(hids, dim=1)
                         # origianl logits
-                        logits = self.model.get_output_embeddings()(hids)
+                        if isinstance(self.model.get_output_embeddings(), torch.nn.Embedding):
+                            logits = torch.nn.functional.linear(hids, self.model.get_output_embeddings().weight)
+                        else:
+                            logits = self.model.get_output_embeddings()(hids)
                         logprobs = logits.float().log_softmax(-1)
                         values, indices = logprobs.topk(n_logprobs, dim=-1)
 
