@@ -357,6 +357,9 @@ class ParallelSelfAttention(nn.Module):
                 from megatron.model.long_conv import ParallelBadgerConv
                 self.mixer = ParallelBadgerConv(neox_args)  
             elif self.use_hyena:
+                
+                self.short_conv_L = neox_args.short_conv_L
+                
                 if self.attention_type == "hyena":
                     from megatron.model.hyena import ParallelHyenaConv
                     self.hyena_proj_conv = nn.Conv1d(
@@ -367,7 +370,7 @@ class ParallelSelfAttention(nn.Module):
                         padding=neox_args.short_conv_L - 1,
                     )
 
-                    self.mixer = ParallelHyenaConv(neox_args, init_method)
+                    self.mixer = ParallelHyenaConv(neox_args, init_method, layer_number=self.layer_number)
                 elif self.attention_type == "hyena_v2":
                     from megatron.model.hyena import ParallelHyenaConv2
                     self.hyena_proj_conv = nn.Conv1d(
@@ -377,7 +380,6 @@ class ParallelSelfAttention(nn.Module):
                         padding=neox_args.short_conv_L - 1,
                         bias=False
                     )
-
 
                     self.mixer = ParallelHyenaConv2(neox_args, init_method)
 
@@ -421,6 +423,8 @@ class ParallelSelfAttention(nn.Module):
             skip_bias_add=True,
             parallel_output=parallel_output,
         )
+        
+        self.layer_past = None
 
     def attention(
         self, query_layer, key_layer, value_layer, layer_past, attention_mask
@@ -596,6 +600,8 @@ class ParallelSelfAttention(nn.Module):
 
     def forward(self, hidden_states, attention_mask, layer_past=None):
         # hidden_states: [sq, b, h]
+        
+        layer_past = layer_past if layer_past is not None else self.layer_past
 
         # Attention heads [sq, b, h] --> [sq, b, (np * 3 * hn)]
         if self.attention_type == "hyena_v2":
@@ -641,9 +647,18 @@ class ParallelSelfAttention(nn.Module):
             mixed_x_layer, _ = self.query_key_value(hidden_states)
 
             if self.use_hyena:
+                # retrieve past cnn states
+                if exists(layer_past):
+                    mixed_x_layer = torch.cat([layer_past['past_mixed_x_layer'], mixed_x_layer], 0)
+                past_mixed_x_layer = mixed_x_layer[-self.short_conv_L+1:]
+
                 L = mixed_x_layer.size(0)
                 mixed_x_layer = self.hyena_proj_conv(mixed_x_layer.permute(1, 2, 0))[..., :L].permute(2, 0, 1)
-
+                
+                # only pick last element during decoding
+                if layer_past is not None:
+                    mixed_x_layer = mixed_x_layer[-1:]
+                
             # [sq, b, (np * 3 * hn)] --> [sq, b, np, 3 * hn]
             new_tensor_shape = mixed_x_layer.size()[:-1] + (
                 self.num_attention_heads_per_partition,
@@ -676,7 +691,9 @@ class ParallelSelfAttention(nn.Module):
 
                 seq_len = key_layer.shape[0]
                 offset = 0
-                if exists(layer_past) and layer_past.numel() > 0:
+                # if exists(layer_past) and layer_past.numel() > 0:
+                # TODO
+                if exists(layer_past):
                     offset = layer_past[0].shape[0]
                     seq_len += offset
                 cos, sin = self.rotary_emb(value_layer, seq_len=seq_len)
@@ -692,15 +709,20 @@ class ParallelSelfAttention(nn.Module):
             # Cache key and value for inference
             # ==================================
 
-            if exists(layer_past) and layer_past.numel() > 0:
-                past_key, past_value = layer_past
+            if exists(layer_past):
+                past_key, past_value = layer_past['past_key'], layer_past['past_value']
                 key_layer = torch.cat((past_key.type_as(key_layer), key_layer), dim=0)
                 value_layer = torch.cat(
                     (past_value.type_as(value_layer), value_layer), dim=0
                 )
 
             if self.use_cache:
-                present = torch.stack((key_layer, value_layer))
+                # present = torch.stack((key_layer, value_layer))
+                present = {
+                    'past_key': key_layer,
+                    'past_value': value_layer,
+                    'past_mixed_x_layer': past_mixed_x_layer,
+                }
 
             if self.use_h3 or self.use_badger or self.use_hyena:
                 context_layer = self.mixer(query_layer, key_layer, value_layer)
@@ -724,6 +746,12 @@ class ParallelSelfAttention(nn.Module):
                 self.hidden_size_per_partition,
             )
             context_layer = context_layer.view(*new_context_layer_shape)
+            
+            # if self.layer_number == 0:
+            #     print('q', query_layer[:, 0, 0, 0])
+            #     print('k', key_layer[:, 0, 0, 0])
+            #     print('v', value_layer[:, 0, 0, 0])
+            #     print('c', context_layer[:, 0, 0])
 
             # =================
             # Output. [sq, b, h]

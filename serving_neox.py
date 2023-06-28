@@ -73,7 +73,9 @@ class NeoXInference(FastInferenceInterface):
         self.max_batch_size = args['max_batch_size']
         self.deny_list = args['deny_list']
         
-        model, neox_args = setup_for_inference_or_eval(use_cache=False)
+        model, neox_args = setup_for_inference_or_eval(use_cache=bool(int(os.environ.get('USE_CACHE', 1))))
+        neox_args.recompute = (not bool(int(os.environ.get('USE_CACHE', 1))))
+        print('RECOMPUTE:', neox_args.recompute)
         if neox_args.recompute:
             model.module.inference_mode(
                 use_cache=False
@@ -279,17 +281,30 @@ class NeoXInference(FastInferenceInterface):
                     logging.debug(f"""[Break] {inputs.input_ids}, {self.task_info['top_p']}, {self.task_info['top_k']}, self.task_info["temperature"], {self.task_info["output_len"] + input_length}, {output_scores}""")
                     try:
                         
-                        generation_outputs = generate_samples_from_prompt(
-                            neox_args=self.neox_args,
-                            model=self.model,
-                            text=contexts,
-                            recompute=True, # TODO: need to be true for now
-                            temperature=self.task_info["temperature"],
-                            maximum_tokens=self.task_info["output_len"],
-                            top_p=self.task_info['top_p'],
-                            top_k=self.task_info['top_k'],
-                            stop_tokens=(self.tokenizer.encode(self.task_info["stop"][0]) if len(self.task_info["stop"]) else None),
-                        )[0] # TODO: assert only one sequence
+                        if self.task_info["temperature"] == 0:
+                            generation_outputs = generate_samples_from_prompt(
+                                neox_args=self.neox_args,
+                                model=self.model,
+                                text=contexts,
+                                recompute=self.neox_args.recompute,
+                                temperature=1,
+                                maximum_tokens=self.task_info["output_len"],
+                                top_p=1,
+                                top_k=1,
+                                stop_tokens=(self.tokenizer.encode(self.task_info["stop"][0]) if len(self.task_info["stop"]) else None),
+                            )[0] # TODO: assert only one sequence
+                        else:
+                            generation_outputs = generate_samples_from_prompt(
+                                neox_args=self.neox_args,
+                                model=self.model,
+                                text=contexts,
+                                recompute=self.neox_args.recompute,
+                                temperature=self.task_info["temperature"],
+                                maximum_tokens=self.task_info["output_len"],
+                                top_p=self.task_info['top_p'],
+                                top_k=self.task_info['top_k'],
+                                stop_tokens=(self.tokenizer.encode(self.task_info["stop"][0]) if len(self.task_info["stop"]) else None),
+                            )[0] # TODO: assert only one sequence
                         
                     except Exception as e:
                         traceback.print_exc()

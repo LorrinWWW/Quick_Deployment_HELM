@@ -358,9 +358,11 @@ class ParallelHyenaConv(nn.Module):
         self,
         neox_args,
         init_method,
+        layer_number=0,
     ):
         super().__init__()
 
+        self.layer_number = layer_number
         self.fp16 = neox_args.precision == "fp16"
         self.bf16 = neox_args.precision == "bfloat16"
         self.act = get_activation_from_str(neox_args.gating_act) 
@@ -531,8 +533,17 @@ class ParallelHyenaConv(nn.Module):
                 z = fftconv_func(z.to(torch.float32), filter.to(torch.float32), self.long_conv_bias, None, gelu=False)
                 z = z.to(v.dtype)
 
-            z = q * z
-        return rearrange(z, 'b (np hn) sq -> b np sq hn', np=np)
+            # TODO: update
+            if q.size(-1) != z.size(-1):
+                z = q * z[..., -1:]
+            else:
+                z = q * z
+            
+        z = rearrange(z, 'b (np hn) sq -> b np sq hn', np=np)
+        
+        # if self.layer_number == 0: print('z', z[0,0,:,0])
+        
+        return z
 
 
 

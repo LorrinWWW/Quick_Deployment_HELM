@@ -226,6 +226,9 @@ def stream_tokens(
     """
 
     model.eval()
+    
+    # TODO one by one
+    assert len(context_tokens) == 1
 
     # pad batch in order to allow conversion to tensor
     context_tokens, context_lengths = pad_batch(
@@ -287,7 +290,7 @@ def stream_tokens(
         while token_index_to_generate <= last_token_index_to_generate:
             if recompute:  # recompute all tokens
                 model_inputs = (
-                    context_tokens,
+                    context_tokens[:, :token_index_to_generate],
                     position_ids,
                     attention_mask,
                 )
@@ -301,11 +304,11 @@ def stream_tokens(
                     tokens_to_use = context_tokens[:, :token_index_to_generate]
                     positions_to_use = position_ids[:, :token_index_to_generate]
                 else:
-                    tokens_to_use = context_tokens[:, token_index_to_generate - 1].view(
+                    tokens_to_use = context_tokens[:, token_index_to_generate-1].view(
                         batch_size, -1
                     )
                     positions_to_use = position_ids[
-                        :, token_index_to_generate - 1
+                        :, token_index_to_generate-1
                     ].view(batch_size, -1)
 
                 model_inputs = (

@@ -38,26 +38,30 @@ def main():
     """
     Generate text/sample model
     """
-    model, neox_args = setup_for_inference_or_eval(use_cache=False)
+    model, neox_args = setup_for_inference_or_eval(use_cache=True)
+    neox_args.recompute = False
+    
     if neox_args.recompute:
         model.module.inference_mode(
             use_cache=False
         )  # don't use kv cache if recomputing
+        
+    # print(model)
     
     x = "hello world"
     neox_args.return_logits = True
     
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     
-    print(neox_args.top_k, neox_args.top_p)
+    # print(neox_args.top_k, neox_args.top_p)
     y = generate_samples_from_prompt(
         neox_args=neox_args,
         model=model,
         text=x,
         recompute=neox_args.recompute,
-        temperature=0.01,
-        maximum_tokens=neox_args.maximum_tokens,
-        top_k=50,
+        temperature=1.0,
+        maximum_tokens=10,
+        top_k=1,
         top_p=1.0,
         stop_tokens=tokenizer.encode('#include'),
     )
@@ -67,10 +71,10 @@ def main():
     print(y[0]['logits'].log_softmax(-1))
     print(y[0]['logits'].argmax(-1))
     
-    inputs = tokenizer('hello world! who are you? I am fine.', return_tensors='pt')
-    input_it = iter([{"text": F.pad(inputs.input_ids, pad=(0, 1))}])
-    outputs = forward_step(model=model, neox_args=neox_args, timers=None, return_logits=True, data_iterator=input_it)
-    print(inputs.input_ids.shape, outputs[1].shape)
+    # inputs = tokenizer('hello world! who are you? I am fine.', return_tensors='pt')
+    # input_it = iter([{"text": F.pad(inputs.input_ids, pad=(0, 1))}])
+    # outputs = forward_step(model=model, neox_args=neox_args, timers=None, return_logits=True, data_iterator=input_it)
+    # print(inputs.input_ids.shape, outputs[1].shape)
 
 
 if __name__ == "__main__":
