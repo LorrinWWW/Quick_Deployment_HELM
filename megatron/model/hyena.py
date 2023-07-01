@@ -471,23 +471,38 @@ class ParallelHyenaConv(nn.Module):
         self.long_conv_bias.model_parallel = True
         self.long_conv_bias.partition_dim = 0
         self.long_conv_bias.stride = 1
+        
+        self.cached_filter = None
     
     def forward(self, query_layer, key_layer, value_layer):
         
         # input sizes: [sq, b, np, hn]
         # seqlen, batch, tensor parallel, hidden size per tensor parallel
         np = query_layer.shape[-2]
+        L = key_layer.size(0)
 
         query = rearrange(query_layer, 'sq b np hn -> b (np hn) sq')
         key = rearrange(key_layer, 'sq b np hn -> b (np hn) sq')
         value = rearrange(value_layer, 'sq b np hn -> b (np hn) sq')
-        q,k,v = query[...,:self.L], key[...,:self.L], value[...,:self.L]
+        q,k,v = query[...,:L], key[...,:L], value[...,:L]
 
-        filter = self.filter(self.L)
-
+        if self.training:
+            filter = self.filter(L)
+        elif self.cached_filter is None:
+            filter = self.filter(self.L)
+        else:
+            pass
 
         if self.use_fast_heads:
-            filter = filter.repeat_interleave(self.head_dim, dim=0) 
+            
+            if self.training:
+                filter = filter.repeat_interleave(self.head_dim, dim=0)
+            elif self.cached_filter is None:
+                self.cached_filter = filter.repeat_interleave(self.head_dim, dim=0)
+                filter = self.cached_filter[:, :L]
+            else:
+                filter = self.cached_filter[:, :L]
+                
             z = k * v
 
             head_dim = self.head_dim
@@ -527,7 +542,14 @@ class ParallelHyenaConv(nn.Module):
             )
             z = z.to(value.dtype)
         else:
-            filter = filter.repeat_interleave(self.head_dim, dim=0) 
+            if self.training:
+                filter = filter.repeat_interleave(self.head_dim, dim=0)
+            elif self.cached_filter is None:
+                self.cached_filter = filter.repeat_interleave(self.head_dim, dim=0)
+                filter = self.cached_filter[:, :L]
+            else:
+                filter = self.cached_filter[:, :L]
+                
             z = k * v
             with torch.autocast("cuda"):
                 z = fftconv_func(z.to(torch.float32), filter.to(torch.float32), self.long_conv_bias, None, gelu=False)
@@ -540,8 +562,6 @@ class ParallelHyenaConv(nn.Module):
                 z = q * z
             
         z = rearrange(z, 'b (np hn) sq -> b np sq hn', np=np)
-        
-        # if self.layer_number == 0: print('z', z[0,0,:,0])
         
         return z
 
