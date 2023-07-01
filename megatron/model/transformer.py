@@ -83,13 +83,14 @@ class ParallelMLP(nn.Module):
     """
 
     def __init__(
-        self, neox_args, init_method, output_layer_init_method, parallel_output=False
+        self, neox_args, init_method, output_layer_init_method, parallel_output=False, layer_number=0
     ):
         super().__init__()
 
         self.activation_func = get_activation(neox_args)
         self.activation_type = neox_args.activation
         self.bias_gelu_fusion = neox_args.bias_gelu_fusion
+        self.layer_number = layer_number
 
         # auto scale so geglu has equal parameters
         ff_mult = 4 * 2 / 3 if self.activation_type == "geglu" else 4
@@ -121,7 +122,12 @@ class ParallelMLP(nn.Module):
     def forward(self, hidden_states):
 
         # [s, b, 4hp]
+        # if self.layer_number == 0:
+        #     print('h0', hidden_states[:, 0, 0])
         intermediate_parallel, bias_parallel = self.dense_h_to_4h(hidden_states)
+        
+        # if self.layer_number == 0:
+        #     print('h1', intermediate_parallel[:, 0, 0])
 
         if (
             self.activation_type == "gelu" and self.bias_gelu_fusion
@@ -133,9 +139,16 @@ class ParallelMLP(nn.Module):
             intermediate_parallel = self.activation_func(
                 intermediate_parallel + bias_parallel
             )
+            
+        # if self.layer_number == 0:
+        #     print('h2', intermediate_parallel[:, 0, 0])
 
         # [s, b, h]
         output, output_bias = self.dense_4h_to_h(intermediate_parallel)
+        
+        # if self.layer_number == 0:
+        #     print('h3', output[:, 0, 0])
+            
         return output, output_bias
 
 
@@ -653,11 +666,17 @@ class ParallelSelfAttention(nn.Module):
                 past_mixed_x_layer = mixed_x_layer[-self.short_conv_L+1:]
 
                 L = mixed_x_layer.size(0)
-                mixed_x_layer = self.hyena_proj_conv(mixed_x_layer.permute(1, 2, 0))[..., :L].permute(2, 0, 1)
-                
-                # only pick last element during decoding
+
                 if layer_past is not None:
-                    mixed_x_layer = mixed_x_layer[-1:]
+                    mixed_x_layer = F.conv1d(
+                        mixed_x_layer.permute(1, 2, 0), 
+                        self.hyena_proj_conv.weight, 
+                        self.hyena_proj_conv.bias,
+                        groups=3 * self.hidden_size_per_partition,
+                    ).permute(2, 0, 1)
+                else:
+                    mixed_x_layer = self.hyena_proj_conv(mixed_x_layer.permute(1, 2, 0))[..., :L].permute(2, 0, 1)
+                    
                 
             # [sq, b, (np * 3 * hn)] --> [sq, b, np, 3 * hn]
             new_tensor_shape = mixed_x_layer.size()[:-1] + (
@@ -831,6 +850,7 @@ class ParallelTransformerLayer(nn.Module):
                     init_method=init_method,
                     output_layer_init_method=output_layer_init_method,
                     parallel_output=self.gpt_j_residual,
+                    layer_number=self.layer_number,
                 )
             else:
                 self.mlp = LLaMAParallelMLP(
@@ -926,7 +946,7 @@ class ParallelTransformerLayer(nn.Module):
                 if torch.distributed.get_rank() == 0 and self.log_attn_norms:
                     with torch.no_grad():
                         log_norm(x.norm(2, dim=-1).max(1).values.mean(0), f'prenorm_xnorm_{self.layer_number}', self.iteration_no)
-
+                        
                 x = self.input_layernorm(x)
 
                 if torch.distributed.get_rank() == 0 and self.log_attn_norms:
@@ -952,7 +972,6 @@ class ParallelTransformerLayer(nn.Module):
                     prob=self.hidden_dropout,
                 )
 
-
             if isinstance(self.mlp, nn.Identity):
                 output = attention_output
                 if self.postnorm:
@@ -961,10 +980,11 @@ class ParallelTransformerLayer(nn.Module):
             else:
                 # output = x + mlp(ln2(x))
                 mlp_output, mlp_bias = self.mlp(attention_output)
+                
                 if self.mlp_type == "llama":
                     output = attention_output + mlp_output
                 
-                else:  
+                else:   
                     with torch.enable_grad():
                         output = bias_dropout_fn(
                             mlp_output,
@@ -972,6 +992,7 @@ class ParallelTransformerLayer(nn.Module):
                             residual=attention_output,
                             prob=self.hidden_dropout,
                         )
+                        
         # if torch.distributed.get_rank() == 0 and self.log_attn_norms:
         #     print(output.norm(2, dim=-1).max(1).values.mean(0))
         return output
