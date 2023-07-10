@@ -356,7 +356,6 @@ class ParallelHyenaFilter(nn.Module):
             h = self.modulation(t, h)
 
         if self.normalized:
-            h = h / torch.norm(h, dim=-1, p=1, keepdim=True)
             h = self.post_modulation_norm(h)
             
         h = rearrange(h, '1 L D -> D (1 L)')
@@ -402,6 +401,8 @@ class ParallelHyenaConv(nn.Module):
         self.num_heads = neox_args.num_heads
         self.head_dim = self.hidden_size_per_partition //  self.num_heads
         self.short_conv_L = neox_args.short_conv_L
+
+        self.log_hyena_norms = neox_args.log_hyena_norms
 
         self.short_conv_weight = nn.Parameter(
             torch.empty(
@@ -491,6 +492,7 @@ class ParallelHyenaConv(nn.Module):
             h = self.filter(self.L)
         else:
             pass
+        # h = self.filter(L)
 
         if self.use_fast_heads:
             
@@ -531,110 +533,33 @@ class ParallelHyenaConv(nn.Module):
             z = q * z
 
         elif self.use_slow_heads:
-                        head_dim = self.head_dim
+
+            if self.training:
+                pass
+            elif self.cached_filter is None:
+                self.cached_filter = h
+                h = self.cached_filter[:, :L]
+            else:
+                h = self.cached_filter[:, :L]
+            
+            head_dim = self.head_dim
             L = v.shape[-1]
             fft_size = 2 * L
             kv = rearrange(k, "b (h d1) l -> b d1 1 h l", d1=head_dim) * rearrange(
                 v, "b (h d2) l -> b 1 d2 h l", d2=head_dim
             )  # b d1 d2 h l
 
-            if torch.distributed.get_rank() == 0 and self.log_hyena_norms:
-                with torch.no_grad():
-                    log_norm(
-                        kv[0, 0, 0, 0].norm(2, dim=-1),
-                        f"hy_kv_2norm_L_{self.layer_number}",
-                        self.neox_args.iteration,
-                    )
-                    log_norm(
-                        h[0].norm(2, dim=-1),
-                        f"hy_h_2norm_L_{self.layer_number}",
-                        self.neox_args.iteration,
-                    )
-
-                log_norm(
-                        q[0, 0].norm(2, dim=-1),
-                        f"hy_q_2norm_L_{self.layer_number}",
-                        self.neox_args.iteration,
-                    )
-
-                log_norm(
-                        k[0, 0].norm(2, dim=-1),
-                        f"hy_k_2norm_L_{self.layer_number}",
-                        self.neox_args.iteration,
-                    )
-
-                log_norm(
-                        v[0, 0].norm(2, dim=-1),
-                        f"hy_c_2norm_L_{self.layer_number}",
-                        self.neox_args.iteration,
-                    )
-
             kv_f = torch.fft.rfft(kv.to(torch.float32), n=fft_size) / fft_size
 
-
-            if torch.distributed.get_rank() == 0 and self.log_hyena_norms:
-                with torch.no_grad():
-                    log_norm(
-                        kv_f[0, 0, 0, 0].real.norm(2, dim=-1),
-                        f"hy_kv_f_2norm_real_L_{self.layer_number}",
-                        self.neox_args.iteration,
-                    )   
-                    log_norm(
-                        kv_f[0, 0, 0, 0].imag.norm(2, dim=-1),
-                        f"hy_kv_f_2norm_imag_L_{self.layer_number}",
-                        self.neox_args.iteration,
-                    )   
-
             h_f = torch.fft.rfft(h.to(torch.float32), n=fft_size)  # h L+1
-
-            if torch.distributed.get_rank() == 0 and self.log_hyena_norms:
-                with torch.no_grad():
-                    log_norm(
-                        h_f[0].real.norm(2, dim=-1),
-                        f"hy_h_f_2norm_real_L_{self.layer_number}",
-                        self.neox_args.iteration,
-                    )   
-                    log_norm(
-                        h_f[0].imag.norm(2, dim=-1),
-                        f"hy_h_f_2norm_imag_L_{self.layer_number}",
-                        self.neox_args.iteration,
-                    )   
-
 
             y = torch.fft.irfft(kv_f * h_f, n=fft_size, norm="forward")[
                 ..., :L
             ]  
-
-            # y = torch.fft.irfft(kv_f * h_f, n=fft_size, norm="forward")[
-            #     ..., :L
-            # ]  / (h.sum(-1, keepdim=True)[
-            #     ..., :L
-            # ] + 1e-4)
-            # #
-            #
-            #
-            #
-
             y = y.to(dtype=k.dtype)
-
-            if torch.distributed.get_rank() == 0 and self.log_hyena_norms:
-                with torch.no_grad():
-                    log_norm(
-                        y[0, 0, 0, 0].real.norm(2, dim=-1),
-                        f"hy_y_2norm_L_{self.layer_number}",
-                        self.neox_args.iteration,
-                    )   
 
             # b d1 d2 h l
             out = y + kv * self.long_conv_bias.unsqueeze(-1)  # b d1 d2 h l
-
-            if torch.distributed.get_rank() == 0 and self.log_hyena_norms:
-                with torch.no_grad():
-                    log_norm(
-                        out[0, 0, 0, 0].real.norm(2, dim=-1),
-                        f"hy_out_2norm_L_{self.layer_number}",
-                        self.neox_args.iteration,
-                    )   
 
             q = rearrange(q, "b (h d1) l -> b d1 1 h l", d1=head_dim) / math.sqrt(
                 head_dim
@@ -642,27 +567,21 @@ class ParallelHyenaConv(nn.Module):
             z = _mul_sum(out, q)
             z = rearrange(z, "b d2 h l -> b (h d2) l")
 
-            if torch.distributed.get_rank() == 0 and self.log_hyena_norms:
-                with torch.no_grad():
-                    log_norm(
-                        z[0, 0, 0].real.norm(2, dim=-1),
-                        f"hy_z_2norm_L_{self.layer_number}",
-                        self.neox_args.iteration,
-                    )   
-
             z = z.to(value.dtype)
         else:
             if self.training:
-                f = f.repeat_interleave(self.head_dim, dim=0)
+                h = h.repeat_interleave(self.head_dim, dim=0)
             elif self.cached_filter is None:
-                self.cached_filter = f.repeat_interleave(self.head_dim, dim=0)
-                f = self.cached_filter[:, :L]
+                self.cached_filter = h.repeat_interleave(self.head_dim, dim=0)
+                h = self.cached_filter[:, :L]
             else:
-                f = self.cached_filter[:, :L]
+                h = self.cached_filter[:, :L]
+
+            h = h.repeat_interleave(self.head_dim, dim=0)
                 
             z = k * v
             with torch.autocast("cuda"):
-                z = fftconv_func(z.to(torch.float32), f.to(torch.float32), self.long_conv_bias, None, gelu=False)
+                z = fftconv_func(z.to(torch.float32), h.to(torch.float32), self.long_conv_bias, None, gelu=False)
                 z = z.to(v.dtype)
 
             # TODO: update
