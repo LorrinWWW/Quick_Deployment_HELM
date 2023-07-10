@@ -132,6 +132,8 @@ class NeoXArgsModel(NeoXArgsTemplate):
     prenorm: bool = True
 
     postnorm: bool = False
+
+    pre_mlp_norm: bool = False
     
     layernorm_epsilon: float = 1.0e-5
     """
