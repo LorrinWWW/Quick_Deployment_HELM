@@ -205,6 +205,8 @@ class NeoXArgsModel(NeoXArgsTemplate):
     Whether to use the Hyena filter for H3Conv.
     """
 
+    normalize_hyena_filters: bool = False
+
     use_fast_heads: bool = False
     """
     Use external fast heads in Hyena mixer (reduce BEFORE fftconv)
@@ -248,6 +250,8 @@ class NeoXArgsModel(NeoXArgsTemplate):
     """
 
     log_attn_norms: bool = False
+
+    log_hyena_norms: bool = False
 
     sparsity_config: dict = None
 
