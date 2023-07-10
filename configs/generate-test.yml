@@ -2,10 +2,9 @@
    "pipe-parallel-size": 1,
    "model-parallel-size": 1,
    
-   "tokenizer_type": "GPT2BPETokenizer",
-   "vocab-file": "gpt2-tokenizer/gpt2-vocab.json",
-   "merge-file": "gpt2-tokenizer/gpt2-merges.txt",
-   "load": "/root/fm/models/safari-neox-ckpts",
+   "tokenizer_type": "HFTokenizer",
+   "vocab-file": "neox-tokenizer/tokenizer.json",
+   "load": "/var/cr06_data/models/safari-neox-ckpts",
    "recompute": true,
    
    "text_gen_type": "input-file",
@@ -14,23 +13,60 @@
    "num-layers": 28,
    "hidden-size": 2048,
    "attention-config": [[["hyena"], 28]],
-   "short-conv-L": 3,
-   "postnorm": true,
-   "use-hyena-filter": true,
-  #  "hyena_filter_cls": "modal",
-  #  "hyena_filter_r_min": 0.5,
-  #  "hyena_filter_r_max": 0.999,
+   "short-conv-L": 3, 
+   # reasonable values seem to be 2-3-4. Not too many parameters are here, however
+   
+   "prenorm": true, # always on 
+   
+   "postnorm": false,
+    # unclear if it should be on, should turn off when `identity_mlp` is True. 
+    # LLaMA needs both pre and post norms to be stable
+    # Hyena with gated MLP (LLaMA-style) appears to converge better without postnorm but is unstable,
+    # when adding postnorm the performance is worse than Hyena with regular MLP?
+
+   "log_attn_norms": false,
+
+   "hyena_filter_fast_decay": 0.9,
+   "hyena_filter_slow_decay": 1.5,
+   # percentage of sequence length at which the Hyena filters decay to approximately 0
+
+   "hyena_filter_w": 1, 
+   # we used to keep this higher, but found minimal difference. May want to run quick ablations with w=1, w=10
+
+   "hyena_filter_order": 1536,
+   # the larger, the better. Parameter cost is marginal
+
    "use_fast_heads": false,
-   "seq-length": 8096,
-   "norm": "layernorm",
+   # always false
+
+   "use_slow_heads": true,
+   # our *best* multihead version. Does not increase parameters, makes model stronger (and lowers throughput)
+   # could benefit from a custom kernel.
+
+   "use-hyena-filter": true,
+   "seq-length": 8192,  
+   "norm": "rmsnorm", 
+   # Did not notice significant differences between layernorm and rmsnorm
+
+   "rms_norm_epsilon": 1.0e-6,
    "output_layer_parallelism": "column",
    "identity_mlp": false,
-   "prenorm": true,
+  # use this to turn off post Hyena / Attention MLP
+
   #  "no_weight_tying": true,
   #  "gpt_j_residual": true,
-   "pos_emb": None,
-   "num_heads": 512, # hidden-size / num_heads unique filters
-   "num_attention_heads": 512, # nb: this is only used for mpu with vanilla Hyena, no heads to split
+  "pos_emb": None,
+  "num_heads": 512,
+   # with heads active: number of heads. Select so that model width is 4 or 8 times larger, 
+   # since heads will perform outer products of dim `model_width / num_heads`. Any larger multiple 
+   # may result in significantly higher memory consumption
+  "num_attention_heads": 512, 
+  # keep this same as the above
+
+  "mlp_type": "regular",
+  # "mlp_type": "llama", improves performance but makes model unstable, suggesting we may need to tweak
+  # the layer for stability
+  #"activation": "softsign",
 
    ############## misc optims
    "scaled-upper-triang-masked-softmax-fusion": true,
@@ -38,7 +74,7 @@
 
    ############### init
    "init_method": "small_init",
-   "output_layer_init_method": "small_init",
+   "output_layer_init_method": "wang_init",
 
    ############## optimizer
    "optimizer": {
