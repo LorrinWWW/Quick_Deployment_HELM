@@ -304,7 +304,7 @@ class ParallelSelfAttention(nn.Module):
             neox_args.num_attention_heads, world_size
         )
 
-        self.pos_emb = neox_args.pos_emb
+        self.pos_emb = neox_args.pos_emb if not self.use_hyena else None
 
         # Strided linear layer.
         if self.attention_type != "hyena_v2":
@@ -335,7 +335,7 @@ class ParallelSelfAttention(nn.Module):
             )
 
         # TODO: this arg shouldn't need to be passed in - get from neox_args
-        if rotary:
+        if rotary and not self.use_hyena:
             if neox_args.rotary_pct == 1:
                 self.rotary_ndims = None
             else:
@@ -806,14 +806,15 @@ class ParallelTransformerLayer(nn.Module):
         self.layer_number = layer_number
 
         self.log_attn_norms = neox_args.log_attn_norms
-        self.iteration_no = 0
+        self.neox_args = neox_args
 
         norm, eps = get_norm(neox_args)
         self.prenorm, self.postnorm = neox_args.prenorm, neox_args.postnorm
         if neox_args.prenorm:
             self.input_layernorm = norm(neox_args.hidden_size, eps=eps)
-        if neox_args.postnorm:
-            self.post_attention_layernorm = norm(neox_args.hidden_size, eps=eps)
+        self.attention_type = neox_args.attention_config[layer_number]
+        # if neox_args.postnorm and self.attention_type != "hyena":
+        self.post_attention_layernorm = norm(neox_args.hidden_size, eps=eps)
         
         self.use_cache = use_cache
 
@@ -951,7 +952,11 @@ class ParallelTransformerLayer(nn.Module):
 
                 if torch.distributed.get_rank() == 0 and self.log_attn_norms:
                     with torch.no_grad():
-                        log_norm(x.norm(2, dim=-1).max(1).values.mean(0), f'post_prenorm_xnorm_{self.layer_number}', self.iteration_no)
+                        log_norm(
+                            x.norm(2, dim=-1).max(1).values.mean(0),
+                            f"post_prenorm_xnorm_{self.layer_number}",
+                            self.neox_args.iteration,
+                        )
 
             attention_output, attention_bias = self.attention(
                 x, attention_mask, layer_past=layer_past
@@ -959,8 +964,20 @@ class ParallelTransformerLayer(nn.Module):
 
             if torch.distributed.get_rank() == 0 and self.log_attn_norms:
                 with torch.no_grad():
-                    log_norm(x.norm(2, dim=-1).max(1).values.mean(0), f'post_attn_norm_{self.layer_number}', self.iteration_no)
-
+                    log_norm(
+                        attention_output.norm(2, dim=-1).max(1).values.mean(0),
+                        f"post_attn_norm_{self.layer_number}",
+                        self.neox_args.iteration,
+                    )
+                    log_norm(
+                        attention_bias.expand_as(residual)
+                        .norm(2, dim=-1)
+                        .max(1)
+                        .values.mean(0),
+                        f"post_attn_residual_bias_borm_{self.layer_number}",
+                        self.neox_args.iteration,
+                    )
+                    
             if self.use_cache:
                 attention_output, presents = attention_output
                 self.layer_past = presents
@@ -974,12 +991,15 @@ class ParallelTransformerLayer(nn.Module):
 
             if isinstance(self.mlp, nn.Identity):
                 output = attention_output
-                if self.postnorm:
-                    output = self.post_attention_layernorm(output)
 
             else:
                 # output = x + mlp(ln2(x))
                 mlp_output, mlp_bias = self.mlp(attention_output)
+
+                if (
+                    self.postnorm
+                ):  # and self.attention_type != "hyena", skip applying this in some checkpoints!
+                    mlp_output = self.post_attention_layernorm(mlp_output)
                 
                 if self.mlp_type == "llama":
                     output = attention_output + mlp_output
