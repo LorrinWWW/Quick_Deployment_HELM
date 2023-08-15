@@ -6,72 +6,30 @@ import logging
 logger = logging.getLogger(__name__)
 
 def get_local_huggingface_tokenizer_model(model_name, model_path=None, dtype=None):
-    if model_name.startswith('Salesforce/codegen'):
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        if model_path is not None:
-            print(f"<get_local_huggingface_tokenizer_model> Load from path: {model_path}")
-            model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16)
-        else:
-            model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16)
-    elif model_name == 'facebook/opt-350m':
-        tokenizer = AutoTokenizer.from_pretrained("facebook/opt-350m")
-        model = AutoModelForCausalLM.from_pretrained("facebook/opt-350m", torch_dtype=(dtype if dtype else torch.float16))
-    elif model_name == 'google/flan-t5-xxl':
-        tokenizer = T5Tokenizer.from_pretrained(model_name)
-        if model_path is not None:
-            print(f"<get_local_huggingface_tokenizer_model> Load from path: {model_path}")
-            model = T5ForConditionalGeneration.from_pretrained(model_path, torch_dtype=torch.bfloat16)
-        else:
-            model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-xxl", torch_dtype=torch.bfloat16)
-    elif model_name == 'facebook/opt-iml-30b':
-        tokenizer = AutoTokenizer.from_pretrained("facebook/opt-iml-30b", use_fast=False)
-        if model_path is not None:
-            print(f"<get_local_huggingface_tokenizer_model> Load from path: {model_path}")
-            model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16)
-        else:
-            model = AutoModelForCausalLM.from_pretrained("facebook/opt-iml-30b", torch_dtype=torch.float16)
-    elif model_name == "chip_20B_instruct_alpha":
-        assert model_path is not None
-        print(f"<get_local_huggingface_tokenizer_model> Load from path: {model_path}")
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
-        model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16, load_in_8bit=False)
-    elif model_name == 't5-11b':
-        tokenizer = AutoTokenizer.from_pretrained('t5-11b', model_max_length=512)
-        # tokenizer.model_max_length=512
-        model = T5ForConditionalGeneration.from_pretrained('t5-11b', torch_dtype=torch.bfloat16)
-        model.config.eos_token_id = None
-    elif model_name == 'google/ul2':
-        tokenizer = AutoTokenizer.from_pretrained('google/ul2')
-        model = T5ForConditionalGeneration.from_pretrained("google/ul2", torch_dtype=torch.bfloat16)
-    elif model_name == 'EleutherAI/gpt-j-6b':
-        tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-j-6B")
-        model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-j-6B", torch_dtype=torch.float16)
-    elif model_name == 'togethercomputer/GPT-JT-6B-v1':
-        tokenizer = AutoTokenizer.from_pretrained("togethercomputer/GPT-JT-6B-v1")
-        model = AutoModelForCausalLM.from_pretrained("togethercomputer/GPT-JT-6B-v1", torch_dtype=torch.float16)
-    elif model_name == 'EleutherAI/gpt-neox-20b':
-        tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neox-20b")
-        model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neox-20b", torch_dtype=torch.float16)
-    elif model_name == 'Together/gpt-neoxT-20b':
-        dtype = dtype or torch.float16
-        if model_path is not None:
-            tokenizer = AutoTokenizer.from_pretrained(model_path)
-            model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True, torch_dtype=dtype)
-        else:
-            assert False
-    elif model_path is not None and model_path != "":
-        dtype = dtype or torch.float16
-        logger.warning("model_path is not None, but model_name is not given. Load from model_path only")
-        tokenizer = AutoTokenizer.from_pretrained(model_path, add_bos_token=False)
-        model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=dtype)
-        tokenizer.add_bos_token = False
+
+    _fn_reset = torch.nn.Linear.reset_parameters
+    torch.nn.Linear.reset_parameters = (lambda x: None)
+
+    dtype = dtype or torch.float16
+    model_path = model_path or model_name
+    
+    tokenizer = AutoTokenizer.from_pretrained(model_path, add_bos_token=False)
+
+    if 'gptq' in model_path:
+        from auto_gptq import AutoGPTQForCausalLM
+        model = AutoGPTQForCausalLM.from_quantized(model_path, device="cuda:0")
     else:
-        assert False, "Model not supported yet."
+        model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True, torch_dtype=dtype)
+        
+    tokenizer.add_bos_token = False
 
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = 'left'
     tokenizer.truncation_side = 'left'
+
+    torch.nn.Linear.reset_parameters = _fn_reset
+    
     return model, tokenizer
 
 

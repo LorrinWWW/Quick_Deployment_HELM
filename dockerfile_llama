@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.7.0-cudnn8-devel-ubuntu20.04
+FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
 
 # init workdir
 RUN mkdir -p /build
@@ -18,30 +18,43 @@ RUN apt update && \
 # echo ". /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc && \
 # echo "conda activate base" >> ~/.bashrc
 
-RUN mkdir -p /safari-internal
-COPY safari-internal /safari-internal
-
 # install conda alpa env
 RUN . /opt/conda/etc/profile.d/conda.sh && \
-    conda create --name alpa python=3.8 -y && \
+    conda create --name alpa python=3.10 -y && \
     conda activate alpa && \
     apt install coinor-cbc -y && \
     pip3 install --upgrade pip && \
-    pip3 install cupy-cuda117 && \
+    pip3 install cupy-cuda11x && \
     pip3 install alpa && \
     pip3 install --upgrade "jax[cuda11_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html && \
     pip3 install together_worker && \
     pip3 install transformers && \
     pip3 install fastapi uvicorn omegaconf jinja2 einops && \
-    pip3 install torch==2.0 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu117  && \
-    pip3 install flash-attn==1.0.2 && \
+    pip3 install torch==2.0 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu118  && \
+    pip3 install ninja
+
+
+RUN . /opt/conda/etc/profile.d/conda.sh && \
+    conda activate alpa && \
     cd /build && \
     git clone https://github.com/alpa-projects/alpa.git && \
     cd alpa/examples && \
     pip3 install -e . && \
     pip3 install sentencepiece && \
-    pip3 install accelerate && \
-    echo "conda activate alpa" >> ~/.bashrc
+    pip3 install accelerate
+
+
+RUN . /opt/conda/etc/profile.d/conda.sh && \
+    conda activate alpa && \
+    pip3 install flash-attn --no-build-isolation && \
+    pip3 install git+https://github.com/HazyResearch/flash-attention.git#subdirectory=csrc/rotary && \
+    pip3 install auto-gptq
+
+RUN . /opt/conda/etc/profile.d/conda.sh && \
+    conda activate alpa && \
+    pip3 install --upgrade websockets
+
+RUN echo "conda activate alpa" >> ~/.bashrc
 
 RUN wget https://together-distro-packages.s3.us-west-2.amazonaws.com/linux/x86_64/bin/together-node-latest -O /usr/local/bin/together-node && \
     chmod +x /usr/local/bin/together-node
