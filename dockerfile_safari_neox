@@ -55,7 +55,7 @@ RUN . /opt/conda/etc/profile.d/conda.sh && \
     pip3 install -r requirements.txt && \
     pip3 install cchardet
     
-COPY megatron/fused_kernels /build/fused_kernels
+COPY reserve/fused_kernels /build/fused_kernels
 
 RUN . /opt/conda/etc/profile.d/conda.sh && \
     conda activate alpa && \

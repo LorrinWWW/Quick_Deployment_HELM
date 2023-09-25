@@ -2,3 +2,5 @@
 *.pyc
 inference_step_with_cache*
 *.sif
+.ipynb_checkpoints
+*.so

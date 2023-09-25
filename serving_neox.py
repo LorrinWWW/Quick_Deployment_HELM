@@ -22,11 +22,11 @@ from together_worker.fast_inference import FastInferenceInterface
 from together_web3.computer import RequestTypeLanguageModelInference
 from together_web3.together import TogetherWeb3, TogetherClientOptions
 
-from megatron.utils import print_rank_0, setup_for_inference_or_eval
+from reserve.utils import print_rank_0, setup_for_inference_or_eval
 
-from megatron.text_generation_utils import generate_samples_from_prompt
+from reserve.text_generation_utils import generate_samples_from_prompt
 
-from megatron.training import forward_step
+from reserve.training import forward_step
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ class NeoXInference(FastInferenceInterface):
         self.neox_args = neox_args
         self.model = model
         # TODO: hard code
-        self.tokenizer = AutoTokenizer.from_pretrained("gpt2")
+        self.tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neox-20b")
         self.tokenizer.pad_token = self.tokenizer.eos_token
         
         self.plugin = args.get('plugin')

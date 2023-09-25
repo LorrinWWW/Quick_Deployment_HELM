@@ -48,7 +48,7 @@
    "norm": "rmsnorm", 
    # Did not notice significant differences between layernorm and rmsnorm
 
-   "rms_norm_epsilon": 1.0e-6,
+   "rms_norm_epsilon": 1.0e-9,
    "output_layer_parallelism": "column",
    "identity_mlp": false,
   # use this to turn off post Hyena / Attention MLP
@@ -78,11 +78,9 @@
 
    ############## optimizer
    "optimizer": {
-     "type": "Adam",
+     "type": "SGD",
      "params": {
-       "lr": 0.0002,
-       "betas": [0.9, 0.95],
-       "eps": 1.0e-8,
+       "lr": 0.0002
      }
    },
    "min_lr": 0.00006,

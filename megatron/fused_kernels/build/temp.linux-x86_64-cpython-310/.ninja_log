@@ -1,9 +1,0 @@
-# ninja log v5
-1	18446	1686708090087855634	/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/build/temp.linux-x86_64-cpython-310/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/scaled_upper_triang_masked_softmax.o	9df6683fb772e76a
-1	89421	1686708161063303924	/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/build/temp.linux-x86_64-cpython-310/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/scaled_upper_triang_masked_softmax_cuda.o	834a6d24d4af2f0
-4	18445	1686708179995155940	/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/build/temp.linux-x86_64-cpython-310/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/scaled_masked_softmax.o	8d34ebbf92fbddcc
-4	86887	1686708248434618372	/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/build/temp.linux-x86_64-cpython-310/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/scaled_masked_softmax_cuda.o	88749cdd70ff16c1
-462	20050	1687488837243797668	/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/build/temp.linux-x86_64-cpython-310/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/scaled_upper_triang_masked_softmax.o	2013a9be506dc2c6
-462	91396	1687488908587154128	/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/build/temp.linux-x86_64-cpython-310/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/scaled_upper_triang_masked_softmax_cuda.o	d878ae2079f0b294
-342	17963	1687488927030987863	/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/build/temp.linux-x86_64-cpython-310/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/scaled_masked_softmax.o	e01cde6df9470a5e
-342	89900	1687488998966339733	/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/build/temp.linux-x86_64-cpython-310/var/cr01_data/mpoli/code/safari-neox/megatron/fused_kernels/scaled_masked_softmax_cuda.o	c4b26893cff09ad2
